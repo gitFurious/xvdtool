@@ -149,10 +149,33 @@ namespace LibXboxOne
             return _io.Reader.ReadUInt32();
         }
 
+        public uint ReadUInt32(long offset)
+        {
+            _io.Stream.Seek(offset, SeekOrigin.Begin);
+            return _io.Reader.ReadUInt32();
+        }
+
         public byte[] ReadBytes(long offset, int length)
         {
             _io.Stream.Seek(offset, SeekOrigin.Begin);
             return _io.Reader.ReadBytes(length);
+        }
+
+        public int WriteBytes(long offset, byte[] data)
+        {
+            _io.Stream.Seek(offset, SeekOrigin.Begin);
+            _io.Writer.Write(data);
+            return data.Length;
+        }
+
+        public byte[] ReadPage(ulong pageNumber)
+        {
+            return ReadBytes((long)XvdMath.PageNumberToOffset(pageNumber), (int)PAGE_SIZE);
+        }
+
+        public int WritePage(ulong pageNumber, byte[] data)
+        {
+            return WriteBytes((long)XvdMath.PageNumberToOffset(pageNumber), data);
         }
 
         public bool VirtualToLogicalDriveOffset(ulong virtualOffset, out ulong logicalOffset)
@@ -750,6 +773,33 @@ namespace LibXboxOne
             return true;
         }
 
+        public bool AddMutableData()
+        {
+            if (!IsXvcFile || XvcInfo.ContentID == null || RegionHeaders == null)
+            {
+                Console.WriteLine("Package is not XVC or has no Xvc data");
+                return false;
+            }
+
+            ulong pageCount = XvdMath.BytesToPages(XvcInfo.RegionCount);
+            byte[] mutableData = new byte[XvdMath.PageNumberToOffset(pageCount)];
+
+            if (Header.MutableDataPageCount > 0)
+                return true;
+
+            if (!AddData(MduOffset, pageCount))
+                return false;
+
+            for(int regionIndex=0; regionIndex < RegionHeaders.Count; regionIndex++)
+                mutableData[regionIndex] = (byte)(XvcRegionPresenceInfo.IsPresent
+                                                | XvcRegionPresenceInfo.IsAvailable);
+
+            WriteBytes((long)MduOffset, mutableData);
+            Header.MutableDataPageCount = (byte)pageCount;
+
+            return Save();
+        }
+
         public bool RemoveMutableData()
         {
             if (Header.MutableDataPageCount <= 0)
@@ -1014,12 +1064,6 @@ namespace LibXboxOne
                 return true;
             }
             return false;
-        }
-
-        public byte[] Read(long offset, int count)
-        {
-            _io.Stream.Position = offset;
-            return _io.Reader.ReadBytes(count);
         }
 
         #region ToString
